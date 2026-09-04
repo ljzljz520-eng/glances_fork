@@ -3,6 +3,14 @@
 ==============================================================================
 
 =============
+Version 4.6.0
+=============
+
+Enhancements and new features:
+
+* Alert notifications: send email (SMTP), DingTalk and Feishu custom robot webhook notifications when WARNING/CRITICAL alert events are raised. Notification channels and alert thresholds (CPU total/user/system/iowait/steal, memory, swap, load) can be configured from the WebUI through the new alert settings dialog, are persisted in a standalone notifications.json file and are applied immediately without restart. New REST API endpoints: GET/POST /api/4/notifications and POST /api/4/notifications/test.
+
+=============
 Version 4.5.6
 =============
 

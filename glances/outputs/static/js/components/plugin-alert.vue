@@ -3,10 +3,17 @@
     <span v-if="hasAlerts" class="title">
       Warning or critical alerts (last {{ countAlerts }} entries)
       <span>
+        <button class="button" @click="showSettings = true">告警设置</button>
         <button class="button" @click="clear()">Clear alerts</button>
       </span>
     </span>
-    <span v-else class="title">No warning or critical alert detected</span>
+    <span v-else class="title">
+      No warning or critical alert detected
+      <span>
+        <button class="button" @click="showSettings = true">告警设置</button>
+      </span>
+    </span>
+    <settings-alerts v-if="showSettings" @close="showSettings = false"></settings-alerts>
     <table class="table table-sm table-borderless">
       <tbody>
         <tr v-for="(alert, alertId) in alerts" :key="alertId">
@@ -31,12 +38,21 @@
 <script>
 import { padStart } from "lodash";
 import { GlancesFavico } from "../services.js";
+import SettingsAlerts from "./settings-alerts.vue";
 
 export default {
+	components: {
+		SettingsAlerts,
+	},
 	props: {
 		data: {
 			type: Object,
 		},
+	},
+	data() {
+		return {
+			showSettings: false,
+		};
 	},
 	computed: {
 		stats() {

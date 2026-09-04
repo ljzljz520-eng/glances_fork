@@ -13,6 +13,7 @@ from dataclasses import asdict
 from datetime import datetime
 
 from glances.event import GlancesEvent
+from glances.logger import logger
 from glances.processes import glances_processes
 from glances.thresholds import glances_thresholds
 
@@ -185,6 +186,34 @@ class GlancesEventsList:
         # Init the logs list
         self.events_list = []
 
+        # Event listeners (e.g. alert notifications)
+        # Called on new WARNING/CRITICAL events and on WARNING->CRITICAL escalation
+        self._listeners = []
+
+    def add_listener(self, callback):
+        """Register a listener callback.
+
+        The callback is called with the event (dict) when a new WARNING or
+        CRITICAL event is created or when an event escalates to CRITICAL.
+        Listener exceptions are caught and never impact the events processing.
+        """
+        self._listeners.append(callback)
+
+    def remove_listener(self, callback):
+        """Unregister a previously registered listener callback."""
+        try:
+            self._listeners.remove(callback)
+        except ValueError:
+            pass
+
+    def _fire_listeners(self, event):
+        """Call every registered listener for the given event (dict)."""
+        for callback in self._listeners:
+            try:
+                callback(event)
+            except Exception as e:
+                logger.error(f"Error in event listener {callback}: {e}")
+
     def set_max_events(self, max_events):
         """Set the maximum size of the events list."""
         self.max_events = max_events
@@ -310,6 +339,9 @@ class GlancesEventsList:
         if self.len() > self.max_events:
             self.events_list.pop()
 
+        # Notify listeners (alert notifications)
+        self._fire_listeners(asdict(event))
+
     def _update_event(
         self, event_time, event_index, event_state, event_type, event_value, proc_list, proc_desc, global_message
     ):
@@ -324,6 +356,10 @@ class GlancesEventsList:
             # Set process sort key
             self.set_process_sort(event_type)
 
+            # Detect a WARNING -> CRITICAL escalation (a CRITICAL event never
+            # goes back to WARNING, so only notify the first CRITICAL state)
+            escalated_to_critical = event_state == 'CRITICAL' and self.events_list[event_index].state != 'CRITICAL'
+
             # Update an ongoing event
             self.events_list[event_index].update(
                 state=event_state,
@@ -333,6 +369,10 @@ class GlancesEventsList:
                 proc_desc=proc_desc,
                 global_msg=global_message,
             )
+
+            # Notify listeners on CRITICAL escalation (alert notifications)
+            if escalated_to_critical:
+                self._fire_listeners(asdict(self.events_list[event_index]))
 
     def _close_event(self, event_time, event_index):
         """Close an event in the list"""

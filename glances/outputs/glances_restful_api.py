@@ -23,6 +23,18 @@ from glances.globals import json_dumps
 from glances.logger import logger
 from glances.password import GlancesPassword
 
+# Alert notifications (email / DingTalk / Feishu) with fallback
+try:
+    from glances.notifications.config import THRESHOLD_METRICS
+    from glances.notifications.notifier import glances_notifier
+
+    NOTIFICATIONS_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Alert notifications not available: {e}")
+    NOTIFICATIONS_AVAILABLE = False
+    glances_notifier = None
+    THRESHOLD_METRICS = {}
+
 # JWT import with fallback
 try:
     from glances.jwt_utils import JWTHandler
@@ -66,6 +78,7 @@ try:
 except ImportError:
     logger.critical('Uvicorn import error. Glances cannot start in web server mode.')
     sys.exit(2)
+import asyncio
 import contextlib
 import threading
 import time
@@ -530,6 +543,12 @@ class GlancesRestfulApi:
         # POST
         router.add_api_route(f'{base_path}/events/clear/warning', self._events_clear_warning, methods=['POST'])
         router.add_api_route(f'{base_path}/events/clear/all', self._events_clear_all, methods=['POST'])
+        if NOTIFICATIONS_AVAILABLE:
+            # Registered before the {plugin} catch-all routes so that
+            # /notifications is not interpreted as a plugin name
+            router.add_api_route(f'{base_path}/notifications', self._api_notifications_get)
+            router.add_api_route(f'{base_path}/notifications', self._api_notifications_set, methods=['POST'])
+            router.add_api_route(f'{base_path}/notifications/test', self._api_notifications_test, methods=['POST'])
         router.add_api_route(
             f'{base_path}/processes/extended/disable', self._api_disable_extended_processes, methods=['POST']
         )
@@ -787,6 +806,104 @@ class GlancesRestfulApi:
         """
         glances_events.clean(critical=True)
         return GlancesJSONResponse({})
+
+    def _api_notifications_get(self):
+        """Glances API RESTful implementation.
+
+        Return the alert notification configuration (secrets redacted),
+        the configurable metrics metadata and the recent send history.
+        HTTP/200 if OK
+        """
+        response = glances_notifier.config.as_dict_secure()
+        response['metrics'] = [
+            {'key': key, 'label': meta[2], 'unit': meta[3]} for key, meta in THRESHOLD_METRICS.items()
+        ]
+        # Report the thresholds currently effective in the plugins
+        # (glances.conf merged with web overrides), not the config defaults
+        response['thresholds'] = glances_notifier.effective_thresholds(self.stats)
+        response['history'] = glances_notifier.history
+        response['config_file'] = glances_notifier.config.config_file
+        return GlancesJSONResponse(response)
+
+    async def _api_notifications_set(self, request: Request):
+        """Glances API RESTful implementation.
+
+        Update the alert notification configuration (channels and thresholds).
+        Thresholds are applied immediately to the plugins and persisted.
+        HTTP/200 if OK
+        HTTP/400 if the submitted configuration is invalid
+        HTTP/500 if the configuration cannot be persisted
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid JSON body")
+
+        if not isinstance(body, dict):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid configuration payload")
+
+        config = glances_notifier.config
+        # Validate the submitted configuration without mutating the live one
+        errors = config.check_update(body)
+        if errors:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, '; '.join(errors))
+
+        # Validation passed: apply the configuration for real
+        config.update(body)
+
+        if not config.save():
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                f"Cannot write notification configuration file ({config.config_file})",
+            )
+
+        # Apply the thresholds immediately (no restart needed)
+        try:
+            glances_notifier.apply_thresholds(self.stats)
+        except Exception as e:
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Cannot apply thresholds ({str(e)})")
+
+        response = config.as_dict_secure()
+        response['history'] = glances_notifier.history
+        return GlancesJSONResponse(response)
+
+    async def _api_notifications_test(self, request: Request):
+        """Glances API RESTful implementation.
+
+        Send a test notification to the enabled channels.
+        If a configuration payload is provided, it is applied in memory
+        (not persisted) before sending the test message.
+        HTTP/200 with per-channel results
+        HTTP/400 if the submitted configuration is invalid
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+
+        config = glances_notifier.config
+        submitted_config = any(key in body for key in ('channels', 'thresholds', 'min_interval'))
+        if submitted_config:
+            errors = config.check_update(body)
+            if errors:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, '; '.join(errors))
+
+        def _run_test():
+            if submitted_config:
+                # Apply the submitted configuration temporarily for the test
+                # send, so users can test before saving (live config untouched)
+                with config.temporary_update(body):
+                    return glances_notifier.send_test(channels=body.get('test_channels'))
+            return glances_notifier.send_test(channels=body.get('test_channels'))
+
+        # SMTP/HTTP sends may block for seconds: run outside the event loop
+        results = await asyncio.to_thread(_run_test)
+
+        if not results:
+            return GlancesJSONResponse({'results': {}, 'message': '没有已启用的通知渠道'})
+        return GlancesJSONResponse({'results': results})
 
     async def _api_token(self, request: Request):
         """Glances API RESTful implementation.

@@ -256,4 +256,45 @@ and start Glances using the following command line:
     Replace ``<path>`` with the directory where your ``glances.json`` file
     is hosted.
 
+Alert notifications (email, DingTalk, Feishu)
+----------------------------------------------
+
+Glances can send alert notifications through email (SMTP) and DingTalk /
+Feishu custom robot webhooks when a WARNING or CRITICAL alert event is
+raised (CPU, memory, swap or load thresholds crossed).
+
+The notification channels and the alert thresholds are configured from
+the Web User Interface: click the **告警设置** (alert settings) button at
+the bottom of the WebUI (next to the alerts list). The dialog lets you:
+
+- enable and configure the email channel (SMTP host, port, SSL/STARTTLS,
+  account, sender and recipients), the DingTalk robot webhook (with
+  optional signing secret) and the Feishu robot webhook (with optional
+  signing secret);
+- tune the careful / warning / critical thresholds of the alertable
+  metrics (``cpu_total``, ``cpu_user``, ``cpu_system``, ``cpu_iowait``,
+  ``cpu_steal``, ``mem``, ``memswap``, ``load``) and enable/disable
+  notifications per metric;
+- set the minimum interval between two notifications for the same
+  metric (default: 300 seconds); a WARNING event escalating to CRITICAL
+  is always notified immediately;
+- send a test notification to verify the channel configuration.
+
+The configuration is persisted in a standalone ``notifications.json``
+file stored in the Glances user configuration directory (for example
+``~/.config/glances/notifications.json``); the main ``glances.conf`` file
+is never modified. Thresholds saved from the WebUI are applied
+immediately without restart and take precedence over the ones defined in
+``glances.conf``.
+
+The same settings are available through the RESTful API:
+
+- ``GET /api/4/notifications``: return the notification configuration
+  (secrets redacted), the configurable metrics metadata and the recent
+  notification history;
+- ``POST /api/4/notifications``: update the configuration, validate it,
+  persist it and apply the thresholds immediately;
+- ``POST /api/4/notifications/test``: send a test notification to the
+  enabled channels.
+
 .. _GitHub: https://raw.githubusercontent.com/nicolargo/glances/master/conf/glances.conf

@@ -21,6 +21,15 @@ from glances.globals import exports_path, plugins_path, sys_path, weak_lru_cache
 from glances.logger import logger
 from glances.timer import Counter
 
+# Alert notifier (email / DingTalk / Feishu). Imported for its side effect of
+# registering the glances_events listener; also used to apply web-configured
+# thresholds. Failures must never break stats initialization.
+try:
+    from glances.notifications.notifier import glances_notifier
+except Exception as e:  # pragma: no cover - defensive import
+    logger.debug(f"Alert notifier not available: {e}")
+    glances_notifier = None
+
 
 class GlancesStats:
     """This class stores, updates and gives stats."""
@@ -38,6 +47,14 @@ class GlancesStats:
         # Load plugins and exports modules
         self.first_export = True
         self.load_modules(self.args)
+
+        # Apply web-configured alert notification thresholds on top of the
+        # ones loaded from glances.conf (no-op when the notifier is disabled)
+        if glances_notifier is not None:
+            try:
+                glances_notifier.apply_thresholds(self)
+            except Exception as e:  # pragma: no cover - defensive
+                logger.debug(f"Cannot apply notification thresholds: {e}")
 
     def __getattr__(self, item):
         """Overwrite the getattr method in case of attribute is not found.

@@ -485,3 +485,53 @@ body {
         margin-top: 1em;
     }
 }
+
+// Alert notifications settings modal
+
+.settings-alerts-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 1050;
+    overflow-y: auto;
+    padding: 2em 1em;
+}
+
+.settings-alerts-modal {
+    max-width: 900px;
+    margin: 0 auto;
+    background: #111;
+    color: $glances-fg;
+    border: 1px solid #333;
+
+    .card-header,
+    .card-footer {
+        background: #1a1a1a;
+        border-color: #333;
+    }
+
+    .form-control {
+        background: #000;
+        color: $glances-fg;
+        border-color: #444;
+    }
+
+    .form-control:focus {
+        background: #000;
+        color: $glances-fg;
+    }
+
+    .table {
+        color: $glances-fg;
+        border-color: #333;
+    }
+
+    label.small {
+        color: #999;
+    }
+
+    h6.title {
+        border-bottom: 1px solid #333;
+        padding-bottom: 4px;
+    }
+}
